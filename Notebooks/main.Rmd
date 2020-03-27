@@ -1,0 +1,365 @@
+---
+title: "Assignment Activity Recognition"
+output: html_notebook
+---
+
+# Task Description
+
+To do this assignment you will need access to a phone running Android, i.e. each group should have at least one person with an Android phone.
+
+Download the (free) application Sensor Fusion from Google Play. It has been developed at LiU. More information is available here: http://sensorfusion.se/sfapp/ (Links to an external site.) (Links to an external site.)
+
+ (Links to an external site.)Make sure you have read about sensor imperfection modelling in the self-study material. You might also like to check this video out (Links to an external site.), illustrating the problem with long-time accuracy when using the IMU only (accelerometer + gyro. Adding a compass/magnetometer helps only slightly)
+
+Your task is to implement an "app" (it is ok if it runs offline on saved data) that does activity recognition based on the data from the phone's sensors.
+
+**Requirements:** The algorithm should be able to discriminate between, standing still, walking and running. You don't have to implement the algorithm on the phone, you can work offline on collected data. Handin a presentation where your solution is presented as well as code+data. 
+
+You will peer-review this so thing about the other group that will get your handin.
+
+**Submit a zip file that contains:**
+* Presentation
+* Code, or link to accessible repository
+* Data, or link to accessible repository
+* README file that describes how to run 
+
+**A start could be to:**
+* Check what sensor/signals are available? Most likely GPS, Accelerometer, WiFi RSSI. Some might have gyro also.
+* Log data when the phone is lying still and observe variations in sensor outputs.
+* What sensors will be useful for the activity recognition
+
+
+# Load libraries
+
+```{r message=F, warning=F}
+# Import the header 
+source("header.R")
+# Clear the R environment
+rm(list=ls())
+```
+
+# Read data
+
+```{r message=F, warning=F}
+# read all the classes of the library
+train <- read_csv("../Data/sensorLog_20200323T171331.txt", col_names = T)
+test <- read_csv("../Data/sensorLog_20200323T171721.txt", col_names = T)
+
+train$Time <- anytime(train$Time)
+test$Time <- anytime(test$Time)
+```
+
+# Descriptive plots
+
+```{r}
+train_original <- train %>% 
+  ggplot(aes(x = Time,y = X, color=Type)) +
+  geom_line() +
+  ylab("Value") +
+  ggtitle("Train Set") +
+  theme(legend.title = element_blank())
+
+test_original <- test %>% 
+  ggplot(aes(x = Time,y = X, color=Type)) +
+  geom_line() +
+  ylab("Value") +
+  ggtitle("Test Set") +
+  theme(legend.title = element_blank())
+
+
+# save the plot
+ggsave(filename = "../Figures/train_original.png", plot = train_original ,
+       height = 7, width = 12,  units = c("in"), device = "png")
+
+# save the plot
+ggsave(filename = "../Figures/test_original.png", plot = test_original ,
+       height = 7, width = 12,  units = c("in"), device = "png")
+```
+
+# Data preprocessing
+
+```{r}
+train_m <- pivot_wider(data = train, 
+            id_cols = Time, 
+            names_from = Type, 
+            values_from = c("X", "Y", "Z", "W"))
+
+# Remove all NULL columns
+train_m$W_GPS <- NULL
+train_m$W_ACC <- NULL
+train_m$W_GYR <- NULL 
+
+# order by time (just in case)
+train_m <- train_m %>% arrange(Time)
+```
+
+# Dealing with misssing data
+
+```{r}
+library(zoo)
+
+train_interpolated <- train_m %>%
+  mutate_at(2:14,~na.fill(.x,"extend"))
+
+# Plot to see
+train_interpolated_plot <- train_interpolated %>% 
+  gather(key = Type, X_GYR,X_ORI, X_ACC, X_GPS, Y_GYR, Y_ORI, Y_ACC, Y_GPS, Z_GYR, Z_ORI, Z_ACC, Z_GPS,W_ORI,-Time) %>% 
+  ggplot(aes(x = Time,y = X_GYR, color=Type)) +
+  geom_line() +
+  ylab("Value") +
+  ggtitle("Interpolated Train Set") +
+  theme(legend.title = element_blank())
+
+
+# save the plot
+ggsave(filename = "../Figures/train_interpolated_plot.png", plot = train_interpolated_plot ,
+       height = 7, width = 12,  units = c("in"), device = "png")
+
+```
+# Feature creation
+
+## Min
+
+```{r}
+# Function that computes an sliding window based on the min value
+compute_min_feat <- function(vector, window) {
+  min <- c()
+  for (i in 1:length(vector)) {
+    if (i <= window) {
+      min_value <- 100000
+      for (k in 1:i) {
+        # print(vector[k])
+        min_value  <- min(vector[k], min_value)
+      }
+      min <- c(min, min_value)
+    } else{
+      min_value <- 100000
+      for (j in (i - window + 1):i) {
+        # print(vector[j])
+        min_value  <- min(vector[j], min_value)
+      }
+      min <- c(min, min_value)
+    }
+    # print("---")
+  }
+  return(min)
+}
+
+# Size of sliding window
+window <- 10
+
+# Manual example for testing
+vector <- c(10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+compute_min_feat(vector, window)
+
+# Add feature to the dataset
+train_interpolated$X_GYR_MIN <- compute_min_feat(train_interpolated$X_GYR, window)
+train_interpolated$X_ORI_MIN <- compute_min_feat(train_interpolated$X_ORI, window)
+train_interpolated$X_ACC_MIN <- compute_min_feat(train_interpolated$X_ACC, window)
+train_interpolated$X_GPS_MIN <- compute_min_feat(train_interpolated$X_GPS, window)
+train_interpolated$Y_GYR_MIN <- compute_min_feat(train_interpolated$Y_GYR, window)
+train_interpolated$Y_ORI_MIN <- compute_min_feat(train_interpolated$Y_ORI, window)
+train_interpolated$Y_ACC_MIN <- compute_min_feat(train_interpolated$Y_ACC, window)
+train_interpolated$Z_GYR_MIN <- compute_min_feat(train_interpolated$Z_GYR, window)
+train_interpolated$Z_ORI_MIN <- compute_min_feat(train_interpolated$Z_ORI, window)
+train_interpolated$Z_ACC_MIN <- compute_min_feat(train_interpolated$Z_ACC, window)
+train_interpolated$Z_GPS_MIN <- compute_min_feat(train_interpolated$Z_GPS, window)
+train_interpolated$W_ORI_MIN <- compute_min_feat(train_interpolated$W_ORI, window)
+```
+
+## Max
+
+```{r}
+# Function that computes an sliding window based on the max value
+compute_max_feat <- function(vector, window) {
+  max <- c()
+  for (i in 1:length(vector)) {
+    if (i <= window) {
+      max_value <- -100000
+      for (k in 1:i) {
+        # print(vector[k])
+        max_value  <- max(vector[k], max_value)
+      }
+      max <- c(max, max_value)
+    } else{
+      max_value <- -100000
+      for (j in (i - window + 1):i) {
+        # print(vector[j])
+        max_value  <- max(vector[j], max_value)
+      }
+      max <- c(max, max_value)
+    }
+    # print("---")
+  }
+  return(max)
+}
+
+# Size of sliding window
+window <- 10
+
+# Manual example for testing
+vector <- c(10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+compute_max_feat(vector, window)
+
+# Add feature to the dataset
+train_interpolated$X_GYR_MAX <- compute_max_feat(train_interpolated$X_GYR, window)
+train_interpolated$X_ORI_MAX <- compute_max_feat(train_interpolated$X_ORI, window)
+train_interpolated$X_ACC_MAX <- compute_max_feat(train_interpolated$X_ACC, window)
+train_interpolated$X_GPS_MAX <- compute_max_feat(train_interpolated$X_GPS, window)
+train_interpolated$Y_GYR_MAX <- compute_max_feat(train_interpolated$Y_GYR, window)
+train_interpolated$Y_ORI_MAX <- compute_max_feat(train_interpolated$Y_ORI, window)
+train_interpolated$Y_ACC_MAX <- compute_max_feat(train_interpolated$Y_ACC, window)
+train_interpolated$Z_GYR_MAX <- compute_max_feat(train_interpolated$Z_GYR, window)
+train_interpolated$Z_ORI_MAX <- compute_max_feat(train_interpolated$Z_ORI, window)
+train_interpolated$Z_ACC_MAX <- compute_max_feat(train_interpolated$Z_ACC, window)
+train_interpolated$Z_GPS_MAX <- compute_max_feat(train_interpolated$Z_GPS, window)
+train_interpolated$W_ORI_MAX <- compute_max_feat(train_interpolated$W_ORI, window)
+```
+
+## Mean
+
+```{r}
+# Function that computes an sliding window based on the mean
+compute_mean_feat <- function(vector, window) {
+  mean <- c()
+  for (i in 1:length(vector)) {
+    if (i <= window) {
+      sum <- 0
+      for (k in 1:i) {
+        # print(vector[k])
+        sum  <- vector[k] + sum
+      }
+      mean <- c(mean, as.numeric(sum / i))
+    } else{
+      sum <- 0
+      for (j in (i - window + 1):i) {
+        # print(vector[j])
+        sum  <- vector[j] + sum
+      }
+      mean <- c(mean, as.numeric(sum / i))
+    }
+    # print("---")
+  }
+  return(mean)
+}
+
+# Size of sliding window
+window <- 10
+
+# Manual example for testing
+vector <- c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+compute_mean_feat(vector, window)
+
+# Add feature to the dataset
+train_interpolated$X_GYR_MEAN <- compute_mean_feat(train_interpolated$X_GYR, window)
+train_interpolated$X_ORI_MEAN <- compute_mean_feat(train_interpolated$X_ORI, window)
+train_interpolated$X_ACC_MEAN <- compute_mean_feat(train_interpolated$X_ACC, window)
+train_interpolated$X_GPS_MEAN <- compute_mean_feat(train_interpolated$X_GPS, window)
+train_interpolated$Y_GYR_MEAN <- compute_mean_feat(train_interpolated$Y_GYR, window)
+train_interpolated$Y_ORI_MEAN <- compute_mean_feat(train_interpolated$Y_ORI, window)
+train_interpolated$Y_ACC_MEAN <- compute_mean_feat(train_interpolated$Y_ACC, window)
+train_interpolated$Z_GYR_MEAN <- compute_mean_feat(train_interpolated$Z_GYR, window)
+train_interpolated$Z_ORI_MEAN <- compute_mean_feat(train_interpolated$Z_ORI, window)
+train_interpolated$Z_ACC_MEAN <- compute_mean_feat(train_interpolated$Z_ACC, window)
+train_interpolated$Z_GPS_MEAN <- compute_mean_feat(train_interpolated$Z_GPS, window)
+train_interpolated$W_ORI_MEAN <- compute_mean_feat(train_interpolated$W_ORI, window)
+```
+
+## Plot new features
+
+```{r}
+train_interpolated %>% 
+  ggplot(aes(Time, X_ACC_MAX)) +
+  geom_line()
+
+train_interpolated %>% 
+  ggplot(aes(Time, X_ACC_MIN)) +
+  geom_line()
+
+train_interpolated %>% 
+  ggplot(aes(Time, X_ACC_MEAN)) +
+  geom_line()
+```
+
+# Remove data noise
+
+```{r}
+# Remove initial noise
+train_interpolated_final <- train_interpolated[792:9383, ]
+
+train_interpolated_feature_MAX_without_noise <- train_interpolated_final %>% 
+  ggplot(aes(Time, X_ACC_MAX)) +
+  geom_line()
+
+train_interpolated_feature_MIN_without_noise <-  train_interpolated_final %>% 
+  ggplot(aes(Time, X_ACC_MIN)) +
+  geom_line()
+
+train_interpolated_feature_MEAN_without_noise <- train_interpolated_final %>% 
+  ggplot(aes(Time, X_ACC_MEAN)) +
+  geom_line()
+
+
+# save the plot
+ggsave(filename = "../Figures/train_interpolated_feature_MAX_without_noise.png", plot = train_interpolated_feature_MAX_without_noise ,
+       height = 7, width = 12,  units = c("in"), device = "png")
+
+# save the plot
+ggsave(filename = "../Figures/train_interpolated_feature_MIN_without_noise.png", plot = train_interpolated_feature_MIN_without_noise ,
+       height = 7, width = 12,  units = c("in"), device = "png")
+
+# save the plot
+ggsave(filename = "../Figures/train_interpolated_feature_MEAN_without_noise.png", plot = train_interpolated_feature_MEAN_without_noise ,
+       height = 7, width = 12,  units = c("in"), device = "png")
+
+```
+
+# Manual labeling
+
+## Train set
+
+```{r}
+train_interpolated_final %>% select(Time, X_ACC_MAX) %>% View()
+
+train_interpolated_final_labelled <- train_interpolated_final %>% 
+  ggplot(aes(Time, X_ACC_MAX)) +
+  geom_line() +
+  geom_vline(xintercept=as.numeric(train_interpolated_final$Time[2932]), linetype=4, color = "red") +
+  geom_vline(xintercept=as.numeric(train_interpolated_final$Time[5746]), linetype=4, color = "red") 
+
+# save the plot
+ggsave(filename = "../Figures/train_interpolated_final_labelled.png", plot = train_interpolated_final_labelled ,
+       height = 7, width = 12,  units = c("in"), device = "png")
+
+# Labeling train set
+class <- c()
+for(i in 1:8592){
+  if(i< 2932){
+    class <- c(class, "standing_still")
+  }else if(i>= 2932 & i < 2933){
+    class <- c(class, "walking")
+  }else{
+    class <- c(class, "running")
+  }
+}
+
+# Assign the class
+train_interpolated_final$Class <- class
+colnames(train_interpolated_final)
+
+write_csv(train_interpolated_final, "../Data/train_interpolated_final.csv")
+```
+
+## Test Set
+
+```{r}
+
+```
+
+
+# Classification
+
+
+
+
+
