@@ -78,6 +78,8 @@ ggsave(filename = "../Figures/test_original.png", plot = test_original ,
 
 # Data preprocessing
 
+## Train
+
 ```{r}
 train_m <- pivot_wider(data = train, 
             id_cols = Time, 
@@ -93,11 +95,29 @@ train_m$W_GYR <- NULL
 train_m <- train_m %>% arrange(Time)
 ```
 
-# Dealing with misssing data
+## Test
 
 ```{r}
-library(zoo)
+test_m <- pivot_wider(data = test, 
+            id_cols = Time, 
+            names_from = Type, 
+            values_from = c("X", "Y", "Z", "W"))
 
+# Remove all NULL columns
+test_m$W_GPS <- NULL
+test_m$W_ACC <- NULL
+test_m$W_GYR <- NULL 
+
+# order by time (just in case)
+test_m <- test_m %>% arrange(Time)
+```
+
+
+# Dealing with misssing data
+
+## Train
+
+```{r}
 train_interpolated <- train_m %>%
   mutate_at(2:14,~na.fill(.x,"extend"))
 
@@ -116,9 +136,34 @@ ggsave(filename = "../Figures/train_interpolated_plot.png", plot = train_interpo
        height = 7, width = 12,  units = c("in"), device = "png")
 
 ```
+
+## Test
+
+```{r}
+test_interpolated <- test_m %>%
+  mutate_at(2:14,~na.fill(.x,"extend"))
+
+# Plot to see
+test_interpolated_plot <- test_interpolated %>% 
+  gather(key = Type, X_GYR,X_ORI, X_ACC, X_GPS, Y_GYR, Y_ORI, Y_ACC, Y_GPS, Z_GYR, Z_ORI, Z_ACC, Z_GPS,W_ORI,-Time) %>% 
+  ggplot(aes(x = Time,y = X_GYR, color=Type)) +
+  geom_line() +
+  ylab("Value") +
+  ggtitle("Interpolated Test Set") +
+  theme(legend.title = element_blank())
+
+
+# save the plot
+ggsave(filename = "../Figures/test_interpolated_plot.png", plot = test_interpolated_plot ,
+       height = 7, width = 12,  units = c("in"), device = "png")
+
+```
+
 # Feature creation
 
-## Min
+## Train
+
+### Min
 
 ```{r}
 # Function that computes an sliding window based on the min value
@@ -167,7 +212,7 @@ train_interpolated$Z_GPS_MIN <- compute_min_feat(train_interpolated$Z_GPS, windo
 train_interpolated$W_ORI_MIN <- compute_min_feat(train_interpolated$W_ORI, window)
 ```
 
-## Max
+### Max
 
 ```{r}
 # Function that computes an sliding window based on the max value
@@ -216,7 +261,7 @@ train_interpolated$Z_GPS_MAX <- compute_max_feat(train_interpolated$Z_GPS, windo
 train_interpolated$W_ORI_MAX <- compute_max_feat(train_interpolated$W_ORI, window)
 ```
 
-## Mean
+### Mean
 
 ```{r}
 # Function that computes an sliding window based on the mean
@@ -265,7 +310,7 @@ train_interpolated$Z_GPS_MEAN <- compute_mean_feat(train_interpolated$Z_GPS, win
 train_interpolated$W_ORI_MEAN <- compute_mean_feat(train_interpolated$W_ORI, window)
 ```
 
-## Plot new features
+### Plot new features
 
 ```{r}
 train_interpolated %>% 
@@ -281,7 +326,173 @@ train_interpolated %>%
   geom_line()
 ```
 
+## Test
+
+### Min
+
+```{r}
+# Function that computes an sliding window based on the min value
+compute_min_feat <- function(vector, window) {
+  min <- c()
+  for (i in 1:length(vector)) {
+    if (i <= window) {
+      min_value <- 100000
+      for (k in 1:i) {
+        # print(vector[k])
+        min_value  <- min(vector[k], min_value)
+      }
+      min <- c(min, min_value)
+    } else{
+      min_value <- 100000
+      for (j in (i - window + 1):i) {
+        # print(vector[j])
+        min_value  <- min(vector[j], min_value)
+      }
+      min <- c(min, min_value)
+    }
+    # print("---")
+  }
+  return(min)
+}
+
+# Size of sliding window
+window <- 10
+
+# Manual example for testing
+vector <- c(10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+compute_min_feat(vector, window)
+
+# Add feature to the dataset
+test_interpolated$X_GYR_MIN <- compute_min_feat(test_interpolated$X_GYR, window)
+test_interpolated$X_ORI_MIN <- compute_min_feat(test_interpolated$X_ORI, window)
+test_interpolated$X_ACC_MIN <- compute_min_feat(test_interpolated$X_ACC, window)
+test_interpolated$X_GPS_MIN <- compute_min_feat(test_interpolated$X_GPS, window)
+test_interpolated$Y_GYR_MIN <- compute_min_feat(test_interpolated$Y_GYR, window)
+test_interpolated$Y_ORI_MIN <- compute_min_feat(test_interpolated$Y_ORI, window)
+test_interpolated$Y_ACC_MIN <- compute_min_feat(test_interpolated$Y_ACC, window)
+test_interpolated$Z_GYR_MIN <- compute_min_feat(test_interpolated$Z_GYR, window)
+test_interpolated$Z_ORI_MIN <- compute_min_feat(test_interpolated$Z_ORI, window)
+test_interpolated$Z_ACC_MIN <- compute_min_feat(test_interpolated$Z_ACC, window)
+test_interpolated$Z_GPS_MIN <- compute_min_feat(test_interpolated$Z_GPS, window)
+test_interpolated$W_ORI_MIN <- compute_min_feat(test_interpolated$W_ORI, window)
+```
+
+### Max
+
+```{r}
+# Function that computes an sliding window based on the max value
+compute_max_feat <- function(vector, window) {
+  max <- c()
+  for (i in 1:length(vector)) {
+    if (i <= window) {
+      max_value <- -100000
+      for (k in 1:i) {
+        # print(vector[k])
+        max_value  <- max(vector[k], max_value)
+      }
+      max <- c(max, max_value)
+    } else{
+      max_value <- -100000
+      for (j in (i - window + 1):i) {
+        # print(vector[j])
+        max_value  <- max(vector[j], max_value)
+      }
+      max <- c(max, max_value)
+    }
+    # print("---")
+  }
+  return(max)
+}
+
+# Size of sliding window
+window <- 10
+
+# Manual example for testing
+vector <- c(10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+compute_max_feat(vector, window)
+
+# Add feature to the dataset
+test_interpolated$X_GYR_MAX <- compute_max_feat(test_interpolated$X_GYR, window)
+test_interpolated$X_ORI_MAX <- compute_max_feat(test_interpolated$X_ORI, window)
+test_interpolated$X_ACC_MAX <- compute_max_feat(test_interpolated$X_ACC, window)
+test_interpolated$X_GPS_MAX <- compute_max_feat(test_interpolated$X_GPS, window)
+test_interpolated$Y_GYR_MAX <- compute_max_feat(test_interpolated$Y_GYR, window)
+test_interpolated$Y_ORI_MAX <- compute_max_feat(test_interpolated$Y_ORI, window)
+test_interpolated$Y_ACC_MAX <- compute_max_feat(test_interpolated$Y_ACC, window)
+test_interpolated$Z_GYR_MAX <- compute_max_feat(test_interpolated$Z_GYR, window)
+test_interpolated$Z_ORI_MAX <- compute_max_feat(test_interpolated$Z_ORI, window)
+test_interpolated$Z_ACC_MAX <- compute_max_feat(test_interpolated$Z_ACC, window)
+test_interpolated$Z_GPS_MAX <- compute_max_feat(test_interpolated$Z_GPS, window)
+test_interpolated$W_ORI_MAX <- compute_max_feat(test_interpolated$W_ORI, window)
+```
+
+### Mean
+
+```{r}
+# Function that computes an sliding window based on the mean
+compute_mean_feat <- function(vector, window) {
+  mean <- c()
+  for (i in 1:length(vector)) {
+    if (i <= window) {
+      sum <- 0
+      for (k in 1:i) {
+        # print(vector[k])
+        sum  <- vector[k] + sum
+      }
+      mean <- c(mean, as.numeric(sum / i))
+    } else{
+      sum <- 0
+      for (j in (i - window + 1):i) {
+        # print(vector[j])
+        sum  <- vector[j] + sum
+      }
+      mean <- c(mean, as.numeric(sum / i))
+    }
+    # print("---")
+  }
+  return(mean)
+}
+
+# Size of sliding window
+window <- 10
+
+# Manual example for testing
+vector <- c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+compute_mean_feat(vector, window)
+
+# Add feature to the dataset
+test_interpolated$X_GYR_MEAN <- compute_mean_feat(test_interpolated$X_GYR, window)
+test_interpolated$X_ORI_MEAN <- compute_mean_feat(test_interpolated$X_ORI, window)
+test_interpolated$X_ACC_MEAN <- compute_mean_feat(test_interpolated$X_ACC, window)
+test_interpolated$X_GPS_MEAN <- compute_mean_feat(test_interpolated$X_GPS, window)
+test_interpolated$Y_GYR_MEAN <- compute_mean_feat(test_interpolated$Y_GYR, window)
+test_interpolated$Y_ORI_MEAN <- compute_mean_feat(test_interpolated$Y_ORI, window)
+test_interpolated$Y_ACC_MEAN <- compute_mean_feat(test_interpolated$Y_ACC, window)
+test_interpolated$Z_GYR_MEAN <- compute_mean_feat(test_interpolated$Z_GYR, window)
+test_interpolated$Z_ORI_MEAN <- compute_mean_feat(test_interpolated$Z_ORI, window)
+test_interpolated$Z_ACC_MEAN <- compute_mean_feat(test_interpolated$Z_ACC, window)
+test_interpolated$Z_GPS_MEAN <- compute_mean_feat(test_interpolated$Z_GPS, window)
+test_interpolated$W_ORI_MEAN <- compute_mean_feat(test_interpolated$W_ORI, window)
+```
+### Plot new features
+
+```{r}
+test_interpolated %>% 
+  ggplot(aes(Time, X_ACC_MAX)) +
+  geom_line()
+
+test_interpolated %>% 
+  ggplot(aes(Time, X_ACC_MIN)) +
+  geom_line()
+
+test_interpolated %>% 
+  ggplot(aes(Time, X_ACC_MEAN)) +
+  geom_line()
+```
+
 # Remove data noise
+
+## Train
 
 ```{r}
 # Remove initial noise
@@ -353,11 +564,73 @@ write_csv(train_interpolated_final, "../Data/train_interpolated_final.csv")
 ## Test Set
 
 ```{r}
+test_interpolated %>% select(Time, X_ACC_MAX) %>% View()
 
+test_interpolated_labelled <- test_interpolated %>% 
+  ggplot(aes(Time, X_ACC_MAX)) +
+  geom_line() +
+  geom_vline(xintercept=as.numeric(test_interpolated$Time[2112]), linetype=4, color = "red") +
+  geom_vline(xintercept=as.numeric(test_interpolated$Time[32146]), linetype=4, color = "red") 
+
+# save the plot
+ggsave(filename = "../Figures/test_interpolated_labelled.png", plot = test_interpolated_labelled ,
+       height = 7, width = 12,  units = c("in"), device = "png")
+
+# Labeling test set
+class <- c()
+for(i in 1:36915){
+  if(i< 2112){
+    class <- c(class, "walking")
+  }else if(i>= 2113 & i < 32146){
+    class <- c(class, "running")
+  }else{
+    class <- c(class, "standing_still")
+  }
+}
+
+# Assign the class
+test_interpolated$Class <- class
+colnames(test_interpolated)
+
+write_csv(test_interpolated, "../Data/test_interpolated.csv")
 ```
 
 
 # Classification
+
+```{r}
+library(caret)
+library(class)
+
+# Convert the dependent var to factor. Normalize the numeric variables  
+
+train_interpolated_final$Class <- factor(train_interpolated_final$Class)
+
+num.vars <- sapply(train_interpolated_final, is.numeric)
+train_interpolated_final[num.vars] <- lapply(train_interpolated_final[num.vars], scale)
+
+summary(train_interpolated_final)
+
+# Let's predict on a test set of 100 observations. Rest to be used as train set.
+
+train.def <- gc$Default[-test]
+test.def <- gc$Default[test]
+
+# Let's use k values (no of NNs) as 1, 5 and 20 to see how they perform in terms of correct proportion of classification and success rate. The optimum k value can be chosen based on the outcomes as below...
+
+knn.1 <-  knn(train.gc, test.gc, train.def, k=1)
+knn.5 <-  knn(train.gc, test.gc, train.def, k=5)
+knn.20 <- knn(train.gc, test.gc, train.def, k=20)
+
+## Let's calculate the proportion of correct classification for k = 1, 5 & 20 
+
+100 * sum(test.def == knn.1)/100  # For knn = 1
+
+knn(train=train_interpolated_final, test=test_interpolated_labelled, k=1)
+
+
+set.seed(123) 
+```
 
 
 
