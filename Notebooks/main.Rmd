@@ -636,17 +636,15 @@ ggsave(filename = "../Figures/classes_dist.png", plot = classes_dist ,
        height = 7, width = 12,  units = c("in"), device = "png")
 ```
 
-## XGBoost
+## XGBoost: Test on the train set
 
 ```{r}
-library(xgboost)
-
 data <- train_interpolated_final
 
 table(data$Class)
 data$Time <- NULL
 
-# Convert the Species factor to an integer class starting at 0
+# Convert the Class factor to an integer class starting at 0
 # This is picky, but it's a requirement for XGBoost
 data$Class <-
   ifelse(data$Class == "running", 2, ifelse(data$Class == "walking", 1, 0))
@@ -696,7 +694,7 @@ xgb.fit <- xgb.train(
 xgb.fit
 
 # Predict the test set
-xgb.pred = predict(xgb.fit,test.data,reshape=T)
+xgb.pred = predict(xgb.fit, test.data, reshape = T)
 xgb.pred = as.data.frame(xgb.pred)
 colnames(xgb.pred) = levels(Class)
 
@@ -710,9 +708,86 @@ print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result)))
 ```
 
 
+## XGBoost: Test on the test set
 
+```{r}
+data <- train_interpolated_final
+data_test <- test_interpolated
 
+table(data$Class)
+data$Time <- NULL
+data_test$Time <- NULL
 
+# Convert the Class factor to an integer class starting at 0
+# This is picky, but it's a requirement for XGBoost
+data$Class <-
+  ifelse(data$Class == "running", 2, ifelse(data$Class == "walking", 1, 0))
+data_test$Class <-
+  ifelse(data_test$Class == "running", 2, ifelse(data_test$Class == "walking", 1, 0))
+
+label <-  data$Class
+
+# Use all the train dataset for training
+n <- nrow(data)
+train.index  <- sample(n, floor(1 * n))
+train.data  <- as.matrix(data[train.index, ])
+train.label  <- label[train.index]
+
+# Use the test set for testing
+label_test <- data_test$Class
+data_test$Class <- NULL
+test.data <- as.matrix(data_test)
+test.label <- label_test
+
+# Create the xgb.DMatrix objects
+xgb.train <- xgb.DMatrix(data = train.data, label = train.label)
+xgb.test = xgb.DMatrix(data = test.data, label = test.label)
+
+# Define the main parameters
+Class <- as.factor(data$Class)
+data$Class = NULL
+num_class <- length(levels(Class))
+params <- list(
+  booster = "gbtree",
+  eta = 0.001,
+  max_depth = 5,
+  gamma = 3,
+  subsample = 0.75,
+  colsample_bytree = 1,
+  objective = "multi:softprob",
+  eval_metric = "mlogloss",
+  num_class = num_class
+)
+
+# Train the model: train the XGBoost classifer
+xgb.fit <- xgb.train(
+  params = params,
+  data = xgb.train,
+  nrounds = 100,
+  nthreads = 1,
+  early_stopping_rounds = 10,
+  watchlist = list(val1 = xgb.train, val2 = xgb.test),
+  verbose = 0
+)
+
+# Review the final model and results
+xgb.fit
+
+# Predict the test set
+xgb.pred = predict(xgb.fit, test.data, reshape = T)
+xgb.pred = as.data.frame(xgb.pred)
+colnames(xgb.pred) = levels(Class)
+
+# Use the predicted label with the highest probability
+xgb.pred$prediction = apply(xgb.pred, 1, function(x)
+  colnames(xgb.pred)[which.max(x)])
+xgb.pred$label = levels(Class)[test.label + 1]
+
+# Calculate the final accuracy
+result = sum(xgb.pred$prediction == xgb.pred$label) / nrow(xgb.pred)
+print(paste("Final Accuracy =", sprintf("%1.2f%%", 100 * result)))
+```
+```
 
 
 
