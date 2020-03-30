@@ -530,7 +530,7 @@ ggsave(filename = "../Figures/train_interpolated_feature_MEAN_without_noise.png"
 ## Train set
 
 ```{r}
-train_interpolated_final %>% select(Time, X_ACC_MAX) %>% View()
+# train_interpolated_final %>% select(Time, X_ACC_MAX) %>% View()
 
 train_interpolated_final_labelled <- train_interpolated_final %>% 
   ggplot(aes(Time, X_ACC_MAX)) +
@@ -547,7 +547,7 @@ class <- c()
 for(i in 1:8592){
   if(i< 2932){
     class <- c(class, "standing_still")
-  }else if(i>= 2932 & i < 2933){
+  }else if(i>= 2932 & i < 5746){
     class <- c(class, "walking")
   }else{
     class <- c(class, "running")
@@ -564,7 +564,7 @@ write_csv(train_interpolated_final, "../Data/train_interpolated_final.csv")
 ## Test Set
 
 ```{r}
-test_interpolated %>% select(Time, X_ACC_MAX) %>% View()
+# test_interpolated %>% select(Time, X_ACC_MAX) %>% View()
 
 test_interpolated_labelled <- test_interpolated %>% 
   ggplot(aes(Time, X_ACC_MAX)) +
@@ -595,42 +595,140 @@ colnames(test_interpolated)
 write_csv(test_interpolated, "../Data/test_interpolated.csv")
 ```
 
-
 # Classification
 
+## EDA 
+
 ```{r}
-library(caret)
-library(class)
+# Structure of the train data
+str(train_interpolated_final)
 
-# Convert the dependent var to factor. Normalize the numeric variables  
+table(train_interpolated_final$Class)
 
-train_interpolated_final$Class <- factor(train_interpolated_final$Class)
+classes_xacc_yacc <- train_interpolated_final %>% 
+  ggplot(aes(x = X_ACC, y = Y_ACC)) +
+    geom_point(aes(color=Class, shape=Class)) +
+    ggtitle("Classes")+
+    geom_smooth(method="lm")
 
-num.vars <- sapply(train_interpolated_final, is.numeric)
-train_interpolated_final[num.vars] <- lapply(train_interpolated_final[num.vars], scale)
+# save the plot
+ggsave(filename = "../Figures/classes_xacc_yacc.png", plot = classes_xacc_yacc ,
+       height = 7, width = 12,  units = c("in"), device = "png")
 
-summary(train_interpolated_final)
+train_interpolated_final %>% 
+  ggplot(aes(x = X_ACC_MAX, y = Y_ACC_MAX)) +
+    geom_point(aes(color=Class, shape=Class)) +
+    ggtitle("Classes")+
+    geom_smooth(method="lm")
 
-# Let's predict on a test set of 100 observations. Rest to be used as train set.
+# save the plot
+ggsave(filename = "../Figures/classes_xacc_yacc.png", plot = classes_xacc_yacc ,
+       height = 7, width = 12,  units = c("in"), device = "png")
 
-train.def <- gc$Default[-test]
-test.def <- gc$Default[test]
+classes_dist <- train_interpolated_final %>% 
+  ggplot(aes(x=Class, y=X_ACC_MAX)) +
+    geom_boxplot(aes(fill=Class)) + 
+    ggtitle("Distribution of Classes") +
+    stat_summary(fun.y=mean, geom="point", shape=5, size=4)
 
-# Let's use k values (no of NNs) as 1, 5 and 20 to see how they perform in terms of correct proportion of classification and success rate. The optimum k value can be chosen based on the outcomes as below...
-
-knn.1 <-  knn(train.gc, test.gc, train.def, k=1)
-knn.5 <-  knn(train.gc, test.gc, train.def, k=5)
-knn.20 <- knn(train.gc, test.gc, train.def, k=20)
-
-## Let's calculate the proportion of correct classification for k = 1, 5 & 20 
-
-100 * sum(test.def == knn.1)/100  # For knn = 1
-
-knn(train=train_interpolated_final, test=test_interpolated_labelled, k=1)
-
-
-set.seed(123) 
+# save the plot
+ggsave(filename = "../Figures/classes_dist.png", plot = classes_dist ,
+       height = 7, width = 12,  units = c("in"), device = "png")
 ```
+
+## XGBoost
+
+```{r}
+library(xgboost)
+
+data <- train_interpolated_final
+
+table(data$Class)
+data$Time <- NULL
+
+# Convert the Species factor to an integer class starting at 0
+# This is picky, but it's a requirement for XGBoost
+data$Class <-
+  ifelse(data$Class == "running", 2, ifelse(data$Class == "walking", 1, 0))
+
+label <-  data$Class
+data$Class = NULL
+
+# Split the data for training and testing (75/25 split)
+n <- nrow(data)
+train.index  <-  sample(n, floor(0.75 * n))
+train.data  <-  as.matrix(data[train.index,])
+train.label  <-  label[train.index]
+test.data <- as.matrix(data[-train.index,])
+test.label <- label[-train.index]
+
+# Create the xgb.DMatrix objects
+xgb.train <- xgb.DMatrix(data = train.data, label = train.label)
+xgb.test = xgb.DMatrix(data = test.data, label = test.label)
+
+# Define the main parameters
+Class <- as.factor(data$Class)
+num_class <- length(levels(Class))
+params <- list(
+  booster = "gbtree",
+  eta = 0.001,
+  max_depth = 5,
+  gamma = 3,
+  subsample = 0.75,
+  colsample_bytree = 1,
+  objective = "multi:softprob",
+  eval_metric = "mlogloss",
+  num_class = num_class
+)
+
+# Train the model: train the XGBoost classifer
+xgb.fit <- xgb.train(
+  params = params,
+  data = xgb.train,
+  nrounds = 1000,
+  nthreads = 1,
+  early_stopping_rounds = 10,
+  watchlist = list(val1 = xgb.train, val2 = xgb.test),
+  verbose = 0
+)
+
+# Review the final model and results
+xgb.fit
+
+# Predict the test set
+xgb.pred = predict(xgb.fit,test.data,reshape=T)
+xgb.pred = as.data.frame(xgb.pred)
+colnames(xgb.pred) = levels(Class)
+
+# Use the predicted label with the highest probability
+xgb.pred$prediction = apply(xgb.pred,1,function(x) colnames(xgb.pred)[which.max(x)])
+xgb.pred$label = levels(Class)[test.label+1]
+
+# Calculate the final accuracy
+result = sum(xgb.pred$prediction==xgb.pred$label)/nrow(xgb.pred)
+print(paste("Final Accuracy =",sprintf("%1.2f%%", 100*result)))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
